@@ -6,6 +6,13 @@ import yfinance as yf
 import requests
 import plotly.express as px
 import os
+import shutil
+
+# ✅ STEP 1: 실행할 때마다 database.db를 자동 백업
+os.makedirs("backup", exist_ok=True)
+backup_path = f"backup/backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db"
+if os.path.exists("database.db"):
+    shutil.copyfile("database.db", backup_path)
 
 # 환율 불러오기 (USD to KRW)
 def get_usd_krw():
@@ -49,19 +56,14 @@ CREATE TABLE IF NOT EXISTS sold_stocks (
 )
 """)
 
-existing_cols = [col[1] for col in cursor.execute("PRAGMA table_info(stocks)").fetchall()]
-if "buy_price_per_unit" not in existing_cols:
-    cursor.execute("ALTER TABLE stocks ADD COLUMN buy_price_per_unit REAL DEFAULT 0")
-    conn.commit()
-
-existing_cols = [col[1] for col in cursor.execute("PRAGMA table_info(sold_stocks)").fetchall()]
-if "buy_price_per_unit" not in existing_cols:
-    cursor.execute("ALTER TABLE sold_stocks ADD COLUMN buy_price_per_unit REAL DEFAULT 0")
-    conn.commit()
-
+# 누락 컬럼 자동 추가
+for table in ["stocks", "sold_stocks"]:
+    existing_cols = [col[1] for col in cursor.execute(f"PRAGMA table_info({table})").fetchall()]
+    if "buy_price_per_unit" not in existing_cols:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN buy_price_per_unit REAL DEFAULT 0")
 conn.commit()
 
-# 환율 및 현재가 업데이트
+# 실시간 가격 업데이트
 def update_prices():
     df_all = pd.read_sql_query("SELECT * FROM stocks", conn)
     for _, row in df_all.iterrows():
@@ -84,10 +86,8 @@ def update_prices():
 
 update_prices()
 
-# 페이지 구조
 page = st.sidebar.selectbox("페이지 선택", ["📊 메인", *accounts, "💼 매도 내역"])
 
-# 종목 추가
 st.sidebar.markdown("### 종목 추가")
 with st.sidebar.form("stock_form", clear_on_submit=True):
     account = st.selectbox("계좌 선택", accounts)
@@ -109,7 +109,7 @@ with st.sidebar.form("stock_form", clear_on_submit=True):
             st.success(f"✅ {account} 계좌에 {name} 추가 완료!")
             st.rerun()
 
-# 종목 데이터 로딩
+# 현재 포트폴리오 불러오기
 df = pd.read_sql_query("SELECT * FROM stocks", conn)
 
 if not df.empty:
